@@ -19,6 +19,8 @@ import {
 } from "@lichtblick/suite-base/players/types";
 import { RosDatatypes } from "@lichtblick/suite-base/types/RosDatatypes";
 import { basicDatatypes } from "@lichtblick/suite-base/util/basicDatatypes";
+import BrowserHttpReader from "@lichtblick/suite-base/util/BrowserHttpReader";
+import CachedFilelike from "@lichtblick/suite-base/util/CachedFilelike";
 
 import {
   GetBackfillMessagesArgs,
@@ -28,15 +30,23 @@ import {
   MessageIteratorArgs,
 } from "../IIterableSource";
 
+type RosDb3Source = { type: "files"; files: File[] } | { type: "remote"; url: string };
+
 export class RosDb3IterableSource implements IIterableSource {
-  #files: File[];
+  // #files: File[];
+  readonly #source: RosDb3Source;
+
   #bag?: Rosbag2;
   #start: Time = { sec: 0, nsec: 0 };
   #end: Time = { sec: 0, nsec: 0 };
   #messageSizeEstimateByTopic: Record<string, number> = {};
 
-  public constructor(files: File[]) {
-    this.#files = files;
+  // public constructor(files: File[]) {
+  //   this.#files = files;
+  // }
+
+  public constructor(source: RosDb3Source) {
+    this.#source = source;
   }
 
   public async initialize(): Promise<Initalization> {
@@ -47,7 +57,33 @@ export class RosDb3IterableSource implements IIterableSource {
     const sqlWasm = await (await res.blob()).arrayBuffer();
     await SqliteSqljs.Initialize({ wasmBinary: sqlWasm });
 
-    const dbs = this.#files.map((file) => new SqliteSqljs(file));
+    let dbs: SqliteSqljs[];
+    if (this.#source.type === "remote") {
+      const db3Url = this.#source.url;
+      const fileReader = new BrowserHttpReader(db3Url);
+      const remoteReader = new CachedFilelike({
+        fileReader,
+        cacheSizeInBytes: 1024 * 1024 * 500, // 500MiB
+        keepReconnectingCallback: (_reconnecting) => {
+          // no-op?
+        },
+      });
+
+    // Open the remote reader to fetch the data
+    await remoteReader.open();
+    const fileData = await remoteReader.read(0, remoteReader.size());
+
+    // Convert the fetched data into a Uint8Array
+    const uint8Array = new Uint8Array(fileData);
+
+    // Create a SqliteSqljs instance from the Uint8Array
+    dbs = [new SqliteSqljs(uint8Array)];
+  } else {
+    dbs = this.#source.files.map((file) => new SqliteSqljs(file));
+  }
+
+
+    // const dbs = this.#files.map((file) => new SqliteSqljs(file));
     const bag = new Rosbag2(dbs);
     await bag.open();
     this.#bag = bag;

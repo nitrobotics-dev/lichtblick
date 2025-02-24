@@ -37,6 +37,15 @@ const initWorkers: Record<string, () => Worker> = {
       ),
     );
   },
+  ".db3": () => {
+    return new Worker(
+      // foxglove-depcheck-used: babel-plugin-transform-import-meta
+      new URL(
+        "@lichtblick/suite-base/players/IterablePlayer/rosdb3/RosDb3IterableSourceWorker.worker",
+        import.meta.url,
+      ),
+    );
+  },
 };
 
 class RemoteDataSourceFactory implements IDataSourceFactory {
@@ -51,7 +60,7 @@ class RemoteDataSourceFactory implements IDataSourceFactory {
   public type: IDataSourceFactory["type"] = "connection";
   public displayName = "Remote file";
   public iconName: IDataSourceFactory["iconName"] = "FileASPX";
-  public supportedFileTypes = [".bag", ".mcap"];
+  public supportedFileTypes = [".bag", ".mcap", ".db3"];
   public description = "Open pre-recorded .bag or .mcap files from a remote location.";
   public docsLinks = [
     {
@@ -95,6 +104,7 @@ class RemoteDataSourceFactory implements IDataSourceFactory {
 
     const extension = path.extname(new URL(url).pathname);
     const initWorker = initWorkers[extension];
+    console.log(`Initializing remote file with extension ${extension}`);
     if (!initWorker) {
       throw new Error(`Unsupported extension: ${extension}`);
     }
