@@ -8,3 +8,8 @@ services:
       - "8080:8080"
     container_name: lichtblick_app
     image: lichtblick:latest
+
+networks:
+  default:
+    external: true
+    name: nos-network
