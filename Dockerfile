@@ -6,27 +6,17 @@ COPY . ./
 RUN corepack enable
 RUN yarn install --immutable
 
-RUN yarn run web:build:prod
+# Pass PUBLIC_PATH to the build process
+ARG PUBLIC_PATH=/
+ENV PUBLIC_PATH=${PUBLIC_PATH}
+RUN PUBLIC_PATH=${PUBLIC_PATH} yarn run web:build:prod
 
 # Release stage
-FROM caddy:2.5.2-alpine
-WORKDIR /src
+FROM nginx:alpine
+WORKDIR /usr/share/nginx/html
 COPY --from=build /src/web/.webpack ./
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 EXPOSE 8080
 
-COPY <<EOF /entrypoint.sh
-# Optionally override the default layout with one provided via bind mount
-mkdir -p /lichtblick
-touch /lichtblick/default-layout.json
-index_html=\$(cat index.html)
-replace_pattern='/*LICHTBLICK_SUITE_DEFAULT_LAYOUT_PLACEHOLDER*/'
-replace_value=\$(cat /lichtblick/default-layout.json)
-echo "\${index_html/"\$replace_pattern"/\$replace_value}" > index.html
-
-# Continue executing the CMD
-exec "\$@"
-EOF
-
-ENTRYPOINT ["/bin/sh", "/entrypoint.sh"]
-CMD ["caddy", "file-server", "--listen", ":8080"]
+CMD ["nginx", "-g", "daemon off;"]
