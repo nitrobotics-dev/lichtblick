@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -105,7 +105,16 @@ export class ModelCache {
       /\.glb$/i.test(url) ||
       /\.gltf$/i.test(url)
     ) {
-      return await this.#loadGltf(url, reportError);
+      // Create a copy of the array buffer to respect the `byteOffset` and `byteLength` value as
+      // the underlying three.js STLLoader only accepts an ArrayBuffer instance.
+      return await this.#loadGltf(
+        url,
+        (buffer.buffer as ArrayBuffer).slice(
+          buffer.byteOffset,
+          buffer.byteOffset + buffer.byteLength,
+        ),
+        reportError,
+      );
     }
 
     // Check if this is a STL file based on content-type or file extension
@@ -114,7 +123,10 @@ export class ModelCache {
       // the underlying three.js STLLoader only accepts an ArrayBuffer instance.
       return this.#loadSTL(
         url,
-        buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength),
+        (buffer.buffer as ArrayBuffer).slice(
+          buffer.byteOffset,
+          buffer.byteOffset + buffer.byteLength,
+        ),
         this.options.meshUpAxis,
       );
     }
@@ -134,7 +146,11 @@ export class ModelCache {
     throw new Error(`Unknown ${buffer.byteLength} byte mesh (content-type: "${contentType}")`);
   }
 
-  async #loadGltf(url: string, reportError: ErrorCallback): Promise<LoadedModel> {
+  async #loadGltf(
+    url: string,
+    buffer: ArrayBuffer,
+    reportError: ErrorCallback,
+  ): Promise<LoadedModel> {
     const onError = (assetUrl: string) => {
       const originalUrl = unrewriteUrl(assetUrl);
       log.error(`Failed to load GLTF asset "${originalUrl}" for "${url}"`);
@@ -148,7 +164,7 @@ export class ModelCache {
     gltfLoader.setDRACOLoader(this.#getDracoLoader(manager));
 
     manager.itemStart(url);
-    const gltf = await gltfLoader.loadAsync(url);
+    const gltf = await gltfLoader.parseAsync(buffer, "");
     manager.itemEnd(url);
 
     // THREE.js uses Y-up, while Studio follows the ROS
@@ -223,7 +239,7 @@ export class ModelCache {
         }
         const textureAsset = await this.#fetchAsset(textureUrl);
         const objectUrl = URL.createObjectURL(
-          new Blob([textureAsset.data], { type: textureAsset.mediaType }),
+          new Blob([new Uint8Array(textureAsset.data)], { type: textureAsset.mediaType }),
         );
         this.#colladaTextureObjectUrls.set(textureUrl, objectUrl);
       } catch (e) {

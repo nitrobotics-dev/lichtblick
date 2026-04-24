@@ -1,13 +1,13 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 import { StatusLevel } from "@foxglove/ws-protocol";
 
 import {
   dataTypeToFullName,
-  statusLevelToProblemSeverity,
+  statusLevelToAlertSeverity,
 } from "@lichtblick/suite-base/players/FoxgloveWebSocketPlayer/helpers";
-import BasicBuilder from "@lichtblick/suite-base/testing/builders/BasicBuilder";
+import { BasicBuilder } from "@lichtblick/test-builders";
 
 describe("dataTypeToFullName", () => {
   it("should convert dataType to include /msg/ on it", () => {
@@ -35,6 +35,6 @@ describe("statusLevelToProblemSeverity", () => {
     [StatusLevel.WARNING, "warn"],
     [StatusLevel.ERROR, "error"],
   ])("should map StatusLevel %s to result %s", (level, result) => {
-    expect(statusLevelToProblemSeverity(level)).toBe(result);
+    expect(statusLevelToAlertSeverity(level)).toBe(result);
   });
 });

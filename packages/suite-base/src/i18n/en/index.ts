@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -13,6 +13,7 @@ export * from "./desktopWindow";
 export * from "./extensionsSettings";
 export * from "./gauge";
 export * from "./general";
+export * from "./httpErrors";
 export * from "./incompatibleLayoutVersion";
 export * from "./log";
 export * from "./openDialog";
@@ -21,7 +22,7 @@ export * from "./panels";
 export * from "./panelSettings";
 export * from "./panelToolbar";
 export * from "./plot";
-export * from "./problemsList";
+export * from "./alertsList";
 export * from "./settingsEditor";
 export * from "./stateTransitions";
 export * from "./threeDee";

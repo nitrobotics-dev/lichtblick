@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -47,6 +47,8 @@ function typeForSimpleField(type: BaseType): string {
     case BaseType.None:
     case BaseType.MaxBaseType:
       throw new Error("None is not a valid type.");
+    default:
+      throw new Error(`Unhandled BaseType: ${type}`);
   }
 }
 

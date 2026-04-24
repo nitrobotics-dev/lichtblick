@@ -1,6 +1,6 @@
 /** @jest-environment jsdom */
 
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -20,10 +20,12 @@ import {
   MessageEvent,
   Immutable,
   Subscription,
+  SettingsTreeAction,
 } from "@lichtblick/suite";
 import MockPanelContextProvider from "@lichtblick/suite-base/components/MockPanelContextProvider";
 import { PLAYER_CAPABILITIES } from "@lichtblick/suite-base/players/constants";
 import { AdvertiseOptions } from "@lichtblick/suite-base/players/types";
+import * as PanelStateContextProvider from "@lichtblick/suite-base/providers/PanelStateContextProvider";
 import PanelSetup, { Fixture } from "@lichtblick/suite-base/stories/PanelSetup";
 import ThemeProvider from "@lichtblick/suite-base/theme/ThemeProvider";
 
@@ -774,5 +776,112 @@ describe("PanelExtensionAdapter", () => {
     // force a re-render to make sure we call init panel once
     handle.rerender(<Wrapper />);
     await sig;
+  });
+
+  it("should handle unstable_subscribeMessageRange when getBatchIterator returns undefined", async () => {
+    const initPanel = (context: PanelExtensionContext) => {
+      const cleanup = context.unstable_subscribeMessageRange({
+        topic: "/test/topic",
+        onNewRangeIterator: async () => {
+          // This callback should not be called when no batch iterator is available
+          throw new Error("onNewRangeIterator should not be called");
+        },
+      });
+      expect(typeof cleanup).toBe("function");
+    };
+
+    const sig = signal();
+
+    render(
+      <ThemeProvider isDark>
+        <MockPanelContextProvider>
+          <PanelSetup>
+            <PanelExtensionAdapter config={{}} saveConfig={() => {}} initPanel={initPanel} />
+          </PanelSetup>
+        </MockPanelContextProvider>
+      </ThemeProvider>,
+    );
+
+    await act(async () => {
+      sig.resolve();
+    });
+    await sig;
+  });
+
+  it("should return cleanup function from unstable_subscribeMessageRange", async () => {
+    let cleanupCalled = false;
+    const initPanel = (context: PanelExtensionContext) => {
+      const cleanup = context.unstable_subscribeMessageRange({
+        topic: "/test/topic",
+        onNewRangeIterator: async () => {},
+      });
+      expect(typeof cleanup).toBe("function");
+
+      // Test that cleanup function works
+      cleanup();
+      cleanupCalled = true;
+    };
+
+    const sig = signal();
+
+    render(
+      <ThemeProvider isDark>
+        <MockPanelContextProvider>
+          <PanelSetup>
+            <PanelExtensionAdapter config={{}} saveConfig={() => {}} initPanel={initPanel} />
+          </PanelSetup>
+        </MockPanelContextProvider>
+      </ThemeProvider>,
+    );
+
+    await act(async () => {
+      sig.resolve();
+    });
+    await sig;
+
+    expect(cleanupCalled).toBe(true);
+  });
+
+  describe("extensionSettingsActionHandler - reorder-node branch", () => {
+    it("should return early for reorder-node actions without saving config", async () => {
+      // Given: A mock updatePanelSettingsTree to capture the wrapped actionHandler
+      const updatePanelSettingsTreeMock = jest.fn();
+      jest
+        .spyOn(PanelStateContextProvider, "usePanelSettingsTreeUpdate")
+        .mockReturnValue(updatePanelSettingsTreeMock);
+
+      const saveConfig = jest.fn();
+      const settingsActionHandler = jest.fn();
+
+      const initPanel = (context: PanelExtensionContext) => {
+        context.updatePanelSettingsEditor({
+          actionHandler: settingsActionHandler,
+          nodes: {},
+        });
+      };
+
+      // When: Rendering the adapter and invoking the captured action handler with reorder-node
+      render(
+        <ThemeProvider isDark>
+          <MockPanelContextProvider>
+            <PanelSetup>
+              <PanelExtensionAdapter config={{}} saveConfig={saveConfig} initPanel={initPanel} />
+            </PanelSetup>
+          </MockPanelContextProvider>
+        </ThemeProvider>,
+      );
+
+      // Then: The wrapper action handler should exist and call the original handler but not saveConfig
+      const wrappedActionHandler = updatePanelSettingsTreeMock.mock.calls[0]?.[0]?.actionHandler;
+      expect(typeof wrappedActionHandler).toBe("function");
+
+      wrappedActionHandler?.({
+        action: "reorder-node",
+        payload: { path: ["topics", "topic1"] },
+      } as unknown as SettingsTreeAction);
+
+      expect(settingsActionHandler).toHaveBeenCalledTimes(1);
+      expect(saveConfig).not.toHaveBeenCalled();
+    });
   });
 });

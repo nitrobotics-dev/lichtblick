@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -31,8 +31,10 @@ import {
   useMessagePipeline,
   useMessagePipelineGetter,
 } from "@lichtblick/suite-base/components/MessagePipeline";
+import { getTopicToSchemaNameMap } from "@lichtblick/suite-base/components/MessagePipeline/selectors";
 import { usePanelContext } from "@lichtblick/suite-base/components/PanelContext";
 import PanelToolbar from "@lichtblick/suite-base/components/PanelToolbar";
+import { useAlertsActions } from "@lichtblick/suite-base/context/AlertsContext";
 import { useAppConfiguration } from "@lichtblick/suite-base/context/AppConfigurationContext";
 import {
   ExtensionCatalog,
@@ -60,8 +62,9 @@ import { assertNever } from "@lichtblick/suite-base/util/assertNever";
 import { maybeCast } from "@lichtblick/suite-base/util/maybeCast";
 
 import { PanelConfigVersionError } from "./PanelConfigVersionError";
+import { createMessageRangeIterator } from "./messageRangeIterator";
 import { RenderStateConfig, initRenderStateBuilder } from "./renderState";
-import { BuiltinPanelExtensionContext } from "./types";
+import { BuiltinPanelExtensionContext, MessageConverterAlertHandler } from "./types";
 import { useSharedPanelState } from "./useSharedPanelState";
 
 const log = Logger.getLogger(__filename);
@@ -123,8 +126,16 @@ function PanelExtensionAdapter(
 
   const messagePipelineContext = useMessagePipeline(selectContext);
 
-  const { playerState, pauseFrame, setSubscriptions, seekPlayback, getMetadata, sortedTopics } =
-    messagePipelineContext;
+  const {
+    playerState,
+    pauseFrame,
+    setSubscriptions,
+    seekPlayback,
+    getMetadata,
+    sortedTopics,
+    sortedServices,
+    getBatchIterator,
+  } = messagePipelineContext;
 
   const { capabilities, profile: dataSourceProfile, presence: playerPresence } = playerState;
 
@@ -133,6 +144,7 @@ function PanelExtensionAdapter(
   const [panelId] = useState(() => uuid());
   const isMounted = useSynchronousMountedState();
   const [error, setError] = useState<Error | undefined>();
+  const [forceConversion, setForceConversion] = useState(new Set<string>());
   const [watchedFields, setWatchedFields] = useState(new Set<keyof RenderState>());
   const messageConverters = useExtensionCatalog(selectInstalledMessageConverters);
 
@@ -146,6 +158,7 @@ function PanelExtensionAdapter(
 
   const [slowRender, setSlowRender] = useState(false);
   const [, setDefaultPanelTitle] = useDefaultPanelTitle();
+  const { setAlert } = useAlertsActions();
 
   const { globalVariables, setGlobalVariables } = useGlobalVariables();
 
@@ -178,6 +191,16 @@ function PanelExtensionAdapter(
   const [buildRenderState, setBuildRenderState] = useState(() => initRenderStateBuilder());
 
   const [sharedPanelState, setSharedPanelState] = useSharedPanelState();
+  const emitMessageConverterAlert = useMemo<MessageConverterAlertHandler>(
+    () => (converter, alert, alertId) => {
+      const converterTag = `message-converter:${converter.extensionId ?? "unknown"}:${
+        converter.fromSchemaName
+      }->${converter.toSchemaName}`;
+      const tag = alertId ? `${converterTag}:${alertId}` : converterTag;
+      setAlert(tag, alert);
+    },
+    [setAlert],
+  );
 
   // Register handlers to update the app settings we subscribe to
   useEffect(() => {
@@ -236,15 +259,18 @@ function PanelExtensionAdapter(
       appSettings,
       colorScheme,
       currentFrame: messageEvents,
+      emitAlert: emitMessageConverterAlert,
       globalVariables,
       hoverValue,
       messageConverters,
       playerState,
       sharedPanelState,
       sortedTopics,
+      sortedServices,
       subscriptions: localSubscriptions,
       watchedFields,
-      config: undefined,
+      forceConversion,
+      config: initialState.current,
     });
 
     if (!renderState) {
@@ -255,6 +281,9 @@ function PanelExtensionAdapter(
       setSlowRender(true);
       return;
     }
+
+    // Clear any conversions that were forced.
+    forceConversion.clear();
 
     setSlowRender(false);
     const resumeFrame = pauseFrame(panelId);
@@ -282,6 +311,7 @@ function PanelExtensionAdapter(
     appSettings,
     buildRenderState,
     colorScheme,
+    emitMessageConverterAlert,
     globalVariables,
     hoverValue,
     localSubscriptions,
@@ -293,8 +323,10 @@ function PanelExtensionAdapter(
     renderFn,
     sharedPanelState,
     sortedTopics,
+    sortedServices,
     watchedFields,
     initialState,
+    forceConversion,
   ]);
 
   const updatePanelSettingsTree = usePanelSettingsTreeUpdate();
@@ -302,6 +334,8 @@ function PanelExtensionAdapter(
   const extensionsSettings = useExtensionCatalog(getExtensionPanelSettings);
 
   type PartialPanelExtensionContext = Omit<BuiltinPanelExtensionContext, "panelElement">;
+
+  const messagePipelineState = useMessagePipelineGetter();
 
   const partialExtensionContext = useMemo<PartialPanelExtensionContext>(() => {
     const layout: PanelExtensionContext["layout"] = {
@@ -325,6 +359,9 @@ function PanelExtensionAdapter(
     };
 
     const extensionSettingsActionHandler = (action: SettingsTreeAction) => {
+      if (action.action === "reorder-node") {
+        return; // Extensions don't support reordering
+      }
       const {
         payload: { path },
       } = action;
@@ -332,8 +369,19 @@ function PanelExtensionAdapter(
       saveConfig(
         produce<{ topics: Record<string, unknown> }>((draft) => {
           const [category, topicName] = path;
+
           if (category === "topics" && topicName != undefined) {
-            extensionsSettings[panelName]?.[topicName]?.handler(action, draft.topics[topicName]);
+            const topicToSchemaNameMap = getTopicToSchemaNameMap(messagePipelineState());
+            const schemaName = topicToSchemaNameMap[topicName];
+
+            if (schemaName == undefined) {
+              return;
+            }
+
+            extensionsSettings[panelName]?.[schemaName]?.handler(action, draft.topics[topicName]);
+            setForceConversion((_old) => {
+              return new Set([topicName]);
+            });
           }
         }),
       );
@@ -544,6 +592,48 @@ function PanelExtensionAdapter(
         setDefaultPanelTitle(title);
       },
 
+      /**
+       * EXPERIMENTAL: Subscribe to message ranges for efficient batch processing.
+       *
+       * This API is marked as "unstable" because it's still experimental and not fully functional.
+       * We're gradually testing and refining this feature to see how it performs in real-world scenarios.
+       *
+       * The API may change without notice as we gather feedback and improve the implementation.
+       * Use with caution in production environments.
+       *
+       * Current limitations:
+       * - Performance characteristics may vary
+       * - Error handling is still being refined
+       * - API surface may change based on testing feedback
+       */
+      unstable_subscribeMessageRange({ topic, convertTo, onNewRangeIterator }) {
+        if (!isMounted()) {
+          return () => {};
+        }
+
+        const rawBatchIterator = getBatchIterator(topic);
+        if (!rawBatchIterator) {
+          // If no batch iterator is available, just return an empty cleanup function
+          return () => {};
+        }
+
+        const { iterable: messageEventIterable, cancel } = createMessageRangeIterator({
+          topic,
+          convertTo,
+          rawBatchIterator,
+          sortedTopics,
+          messageConverters: messageConverters ?? [],
+          emitAlert: emitMessageConverterAlert,
+        });
+
+        // Call the callback with the processed iterable
+        onNewRangeIterator(messageEventIterable).catch((err: unknown) => {
+          log.error("Error in onNewRangeIterator callback:", err);
+        });
+
+        return cancel;
+      },
+
       unstable_setMessagePathDropConfig(dropConfig) {
         setMessagePathDropConfig(dropConfig);
       },
@@ -570,6 +660,7 @@ function PanelExtensionAdapter(
     updatePanelSettingsTree,
     setDefaultPanelTitle,
     setMessagePathDropConfig,
+    emitMessageConverterAlert,
   ]);
 
   const panelContainerRef = useRef<HTMLDivElement>(ReactNull);

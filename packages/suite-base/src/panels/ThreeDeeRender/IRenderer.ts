@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -8,6 +8,7 @@
 import EventEmitter from "eventemitter3";
 import * as THREE from "three";
 
+import { CameraModelsMap } from "@lichtblick/den/image/types";
 import {
   Immutable,
   MessageEvent,
@@ -70,6 +71,7 @@ export type RendererEvents = {
   resetViewChanged: (renderer: IRenderer) => void;
   resetAllFramesCursor: (renderer: IRenderer) => void;
   hudItemsChanged: (renderer: IRenderer) => void;
+  clearPreloadBuffer: (renderer: IRenderer) => void;
 };
 
 export type FollowMode = "follow-pose" | "follow-position" | "follow-none";
@@ -96,6 +98,8 @@ export type ImageModeConfig = Partial<ColorModeSettings> & {
   synchronize?: boolean;
   /** Rotation */
   rotation?: 0 | 90 | 180 | 270;
+  brightness?: number;
+  contrast?: number;
   flipHorizontal?: boolean;
   flipVertical?: boolean;
   /** Minimum (black) value for single-channel images */
@@ -136,6 +140,8 @@ export type RendererConfig = {
       lineColor?: string;
       /** Enable transform preloading */
       enablePreloading?: boolean;
+      /** Maximum number of transform messages to keep when preloading (default: 10000) */
+      maxPreloadMessages?: number;
     };
     /** Sync camera with other 3d panels */
     syncCamera?: boolean;
@@ -213,10 +219,15 @@ export class InstancedLineMaterial extends THREE.LineBasicMaterial {
   }
 }
 
+export type AddMessageEventOptions = {
+  inBatch: boolean;
+};
+
 export interface IRenderer extends EventEmitter<RendererEvents> {
   readonly interfaceMode: InterfaceMode;
   readonly gl: THREE.WebGLRenderer;
   readonly testOptions: TestOptions;
+  customCameraModels: CameraModelsMap;
   maxLod: DetailLevel;
   config: Immutable<RendererConfig>;
   settings: SettingsManager;
@@ -289,7 +300,7 @@ export interface IRenderer extends EventEmitter<RendererEvents> {
    * Should be called after `setCurrentTime` as been called
    * @param oldTime used to determine if seeked backwards
    */
-  handleSeek(oldTimeNs: bigint): void;
+  handleSeek(oldTimeNs: bigint, allFrames?: readonly MessageEvent[]): void;
 
   /**
    * Clears:
@@ -336,6 +347,8 @@ export interface IRenderer extends EventEmitter<RendererEvents> {
 
   setCameraState(cameraState: CameraState): void;
 
+  setCustomCameraModels(newCameraModels: CameraModelsMap): void;
+
   getCameraState(): CameraState | undefined;
 
   /** Whether the view has been modified and a reset button should be shown (image mode only). */
@@ -345,7 +358,10 @@ export interface IRenderer extends EventEmitter<RendererEvents> {
 
   setSelectedRenderable(selection: PickedRenderable | undefined): void;
 
-  addMessageEvent(messageEvent: Readonly<MessageEvent>): void;
+  addMessageEvent(
+    messageEvent: Readonly<MessageEvent>,
+    options?: Partial<AddMessageEventOptions>,
+  ): void;
 
   /**  Set desired render/display frame, will render using fallback if id is undefined or frame does not exist */
   setFollowFrameId(frameId: string | undefined): void;

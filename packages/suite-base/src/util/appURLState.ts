@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -7,12 +7,16 @@
 
 import * as _ from "lodash-es";
 
-import { Time, fromRFC3339String, toRFC3339String } from "@lichtblick/rostime";
+import { Time, toRFC3339String } from "@lichtblick/rostime";
 import { LayoutID } from "@lichtblick/suite-base/context/CurrentLayoutContext";
+import { parseTimeUrlString } from "@lichtblick/suite-base/util/time";
+
+import { keyMap } from "./constants";
 
 export type AppURLState = {
   ds?: string;
   dsParams?: Record<string, string>;
+  dsParamsArray?: Record<string, string[]>;
   layoutId?: LayoutID;
   time?: Time;
 };
@@ -43,15 +47,20 @@ export function updateAppURLState(url: URL, urlState: AppURLState): URL {
     }
   }
 
-  if ("dsParams" in urlState) {
+  if (urlState.dsParams || urlState.dsParamsArray) {
     [...newURL.searchParams].forEach(([k]) => {
       if (k.startsWith("ds.")) {
         newURL.searchParams.delete(k);
       }
     });
 
-    Object.entries(urlState.dsParams ?? "").forEach(([k, v]) => {
-      newURL.searchParams.set("ds." + k, v);
+    Object.entries(urlState.dsParams ?? {}).forEach(([k, v]) => {
+      newURL.searchParams.append("ds." + (keyMap[k] ?? k), v);
+    });
+    Object.entries(urlState.dsParamsArray ?? {}).forEach(([k, v]) => {
+      v.forEach((item: string) => {
+        newURL.searchParams.append("ds." + (keyMap[k] ?? k), item);
+      });
     });
   }
 
@@ -70,12 +79,18 @@ export function updateAppURLState(url: URL, urlState: AppURLState): URL {
 export function parseAppURLState(url: URL): AppURLState | undefined {
   const ds = url.searchParams.get("ds") ?? undefined;
   const timeString = url.searchParams.get("time");
-  const time = timeString == undefined ? undefined : fromRFC3339String(timeString);
+  const time = parseTimeUrlString(timeString ?? undefined);
   const dsParams: Record<string, string> = {};
   url.searchParams.forEach((v, k) => {
     if (k && v && k.startsWith("ds.")) {
       const cleanKey = k.replace(/^ds./, "");
-      dsParams[cleanKey] = v;
+      if (dsParams[cleanKey] == undefined) {
+        dsParams[cleanKey] = v;
+      } else if (cleanKey === "url") {
+        dsParams[cleanKey] = dsParams[cleanKey] + "," + v;
+      } else {
+        dsParams[cleanKey] = v;
+      }
     }
   });
 

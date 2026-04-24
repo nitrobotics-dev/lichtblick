@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (C) 2023-2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
+// SPDX-FileCopyrightText: Copyright (C) 2023-2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)<lichtblick@bmwgroup.com>
 // SPDX-License-Identifier: MPL-2.0
 
 import { useCallback, useRef, useMemo, useState } from "react";
@@ -15,15 +15,17 @@ import {
   useSetHoverValue,
   useTimelineInteractionState,
 } from "@lichtblick/suite-base/context/TimelineInteractionStateContext";
-import { downloadCSV } from "@lichtblick/suite-base/panels/Plot/csv";
 import {
   ElementAtPixelArgs,
   UseHoverHandlersHook as UsePlotInteractionHandlers,
   UsePlotInteractionHandlersProps,
 } from "@lichtblick/suite-base/panels/Plot/types";
+import { downloadCSV } from "@lichtblick/suite-base/panels/Plot/utils/csv";
 import { PANEL_TITLE_CONFIG_KEY } from "@lichtblick/suite-base/util/layout";
 
 const selectSetGlobalBounds = (store: TimelineInteractionStateStore) => store.setGlobalBounds;
+
+const DEFAULT_CSV_TITLE = "plot_data";
 
 const usePlotInteractionHandlers = ({
   config,
@@ -207,23 +209,31 @@ const usePlotInteractionHandlers = ({
     };
   }, [coordinator]);
 
+  const onDownloadCsvClick = useCallback(() => {
+    void (async () => {
+      try {
+        const data = await coordinator?.getCsvData();
+        if (!data || !isMounted()) {
+          return;
+        }
+
+        downloadCSV(customTitle ?? DEFAULT_CSV_TITLE, data, xAxisMode);
+      } catch (err: unknown) {
+        console.error(err);
+      }
+    })();
+  }, [coordinator, customTitle, isMounted, xAxisMode]);
+
   const getPanelContextMenuItems = useCallback(() => {
     const items: PanelContextMenuItem[] = [
       {
         type: "item",
         label: "Download plot data as CSV",
-        onclick: async () => {
-          const data = await coordinator?.getCsvData();
-          if (!data || !isMounted()) {
-            return;
-          }
-
-          downloadCSV(customTitle ?? "plot_data", data, xAxisMode);
-        },
+        onclick: onDownloadCsvClick,
       },
     ];
     return items;
-  }, [coordinator, customTitle, isMounted, xAxisMode]);
+  }, [onDownloadCsvClick]);
 
   return {
     onMouseMove,
