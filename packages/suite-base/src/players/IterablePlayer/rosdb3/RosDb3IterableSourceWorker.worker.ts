@@ -14,13 +14,22 @@ import { RosDb3IterableSource } from "./RosDb3IterableSource";
 export function initialize(
   args: IterableSourceInitializeArgs,
 ): WorkerSerializedIterableSourceWorker {
-  const files = args.file ? [args.file] : args.files;
-  if (!files) {
-    throw new Error("files required");
+  if (args.files) {
+    const source = new RosDb3IterableSource({ type: "files", files: args.files });
+    const wrapped = new WorkerSerializedIterableSourceWorker(source);
+    return Comlink.proxy(wrapped);
   }
-  const source = new RosDb3IterableSource(files);
-  const wrapped = new WorkerSerializedIterableSourceWorker(source);
-  return Comlink.proxy(wrapped);
+  if (args.file) {
+    const source = new RosDb3IterableSource({ type: "files", files: [args.file] });
+    const wrapped = new WorkerSerializedIterableSourceWorker(source);
+    return Comlink.proxy(wrapped);
+  }
+  if (args.url) {
+    const source = new RosDb3IterableSource({ type: "remote", url: args.url });
+    const wrapped = new WorkerSerializedIterableSourceWorker(source);
+    return Comlink.proxy(wrapped);
+  }
+  throw new Error("files or url required");
 }
 
 Comlink.expose(initialize);

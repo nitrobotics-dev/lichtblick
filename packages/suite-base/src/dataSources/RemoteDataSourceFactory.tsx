@@ -35,11 +35,23 @@ const initWorkers: Record<string, () => Worker> = {
       ),
     );
   },
+  ".db3": () => {
+    return new Worker(
+      // foxglove-depcheck-used: babel-plugin-transform-import-meta
+      new URL(
+        "@lichtblick/suite-base/players/IterablePlayer/rosdb3/RosDb3IterableSourceWorker.worker",
+        import.meta.url,
+      ),
+    );
+  },
 };
 
 const fileTypesAllowed: AllowedFileExtensions[] = [
   AllowedFileExtensions.BAG,
   AllowedFileExtensions.MCAP,
+  // Our fork adds remote .db3 support; see
+  // RosDb3IterableSource.ts + RosDb3IterableSourceWorker.worker.ts.
+  AllowedFileExtensions.DB3,
 ];
 
 export function checkExtensionMatch(fileExtension: string, previousExtension?: string): string {

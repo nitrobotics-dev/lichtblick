@@ -1,0 +1,15 @@
+version: "3.8"
+
+services:
+  lichtblick:
+    build:
+      context: .
+    ports:
+      - "8080:8080"
+    container_name: lichtblick_app
+    image: lichtblick:latest
+
+networks:
+  default:
+    external: true
+    name: nos-network

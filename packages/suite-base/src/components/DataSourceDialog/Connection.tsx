@@ -155,6 +155,8 @@ export default function Connection(): React.JSX.Element {
     if (!selectedSource) {
       return;
     }
+    console.log("Opening connection", selectedSource.id);
+    console.log("Opening connection with values", fieldValues);
     selectSource(selectedSource.id, { type: "connection", params: fieldValues });
     void analytics.logEvent(AppEvent.DIALOG_CLOSE, { activeDataSource });
     dialogActions.dataSource.close();
